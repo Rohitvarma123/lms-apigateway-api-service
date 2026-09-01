@@ -73,3 +73,7 @@ jobs:
             --cluster "$ECS_CLUSTER" \
             --service "${{ matrix.service.name }}" \
             --force-new-deployment
+
+
+
+            
