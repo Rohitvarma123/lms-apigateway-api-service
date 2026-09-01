@@ -222,3 +222,6 @@ jobs:
           echo "Image Tag     : ${{ github.sha }}"
           echo "ECS Cluster   : ${{ env.ECS_CLUSTER }}"
           echo "=============================================="
+
+
+          
