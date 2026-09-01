@@ -5,7 +5,7 @@ on:
     branches: [main]
 
 permissions:
-  id-token: write   # required for OIDC auth to AWS
+  id-token: write
   contents: read
 
 env:
@@ -16,24 +16,6 @@ env:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        service:
-          - name: api-gateway
-            path: apigateway
-          - name: service-1
-            path: services/service-1
-          - name: service-2
-            path: services/service-2
-          - name: service-3
-            path: services/service-3
-          - name: service-4
-            path: services/service-4
-          - name: service-5
-            path: services/service-5
-          - name: service-6
-            path: services/service-6
-      fail-fast: false
 
     steps:
       - name: Checkout code
@@ -46,7 +28,7 @@ jobs:
           distribution: 'temurin'
 
       - name: Build jar with Maven
-        working-directory: ${{ matrix.service.path }}
+        working-directory: apigateway
         run: ./mvnw clean package -DskipTests
 
       - name: Configure AWS credentials via OIDC
@@ -56,13 +38,12 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
-        id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build, tag, and push image
-        working-directory: ${{ matrix.service.path }}
+        working-directory: apigateway
         env:
-          IMAGE_URI: ${{ env.ECR_REGISTRY }}/lms/${{ matrix.service.name }}:${{ github.sha }}
+          IMAGE_URI: ${{ env.ECR_REGISTRY }}/lms/api-gateway:${{ github.sha }}
         run: |
           docker build -t "$IMAGE_URI" .
           docker push "$IMAGE_URI"
@@ -71,9 +52,5 @@ jobs:
         run: |
           aws ecs update-service \
             --cluster "$ECS_CLUSTER" \
-            --service "${{ matrix.service.name }}" \
+            --service "api-gateway" \
             --force-new-deployment
-
-
-
-            
