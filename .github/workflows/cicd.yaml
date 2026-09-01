@@ -1,9 +1,11 @@
-name: Build and Deploy to ECS
+name: Build and Deploy API Gateway to ECS
 
 on:
   push:
     branches:
       - main
+    paths:
+      - 'apigateway/**'
 
 permissions:
   id-token: write
@@ -12,21 +14,26 @@ permissions:
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
   ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+  ECR_REPOSITORY: api-gateway        # <-- must match the actual ECR repo name
   ECS_CLUSTER: ecs-lms-today
+  ECS_SERVICE: api-gateway           # <-- must match the actual ECS service name
+  ECS_TASK_DEFINITION: api-gateway   # <-- must match the actual task definition family
+  CONTAINER_NAME: api-gateway        # <-- must match the container name inside the task def
+
+defaults:
+  run:
+    working-directory: apigateway    # all run steps execute from apigateway/ unless overridden
 
 jobs:
   build-and-deploy:
-
     runs-on: ubuntu-latest
 
     steps:
-
       # ---------------------------------------------------
       # 1. Checkout source code
       # ---------------------------------------------------
       - name: Checkout Code
         uses: actions/checkout@v4
-
 
       # ---------------------------------------------------
       # 2. Setup Java 17
@@ -37,7 +44,7 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-
+          cache-dependency-path: apigateway/pom.xml
 
       # ---------------------------------------------------
       # 3. Fix Maven Wrapper Permission
@@ -45,20 +52,17 @@ jobs:
       - name: Give Maven Wrapper Execute Permission
         run: chmod +x mvnw
 
-
       # ---------------------------------------------------
       # 4. Verify Maven Wrapper
       # ---------------------------------------------------
       - name: Verify Maven
         run: ./mvnw --version
 
-
       # ---------------------------------------------------
       # 5. Build Application
       # ---------------------------------------------------
       - name: Build Application
         run: ./mvnw clean package -DskipTests
-
 
       # ---------------------------------------------------
       # 6. Configure AWS Credentials using OIDC
@@ -69,13 +73,12 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-
       # ---------------------------------------------------
       # 7. Login to Amazon ECR
       # ---------------------------------------------------
       - name: Login to Amazon ECR
+        id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
-
 
       # ---------------------------------------------------
       # 8. Build Docker Image
@@ -83,9 +86,8 @@ jobs:
       - name: Build Docker Image
         run: |
           docker build \
-            -t $ECR_REGISTRY/${{ github.event.repository.name }}:${{ github.sha }} \
+            -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }} \
             .
-
 
       # ---------------------------------------------------
       # 9. Push Docker Image to ECR
@@ -93,8 +95,7 @@ jobs:
       - name: Push Docker Image
         run: |
           docker push \
-            $ECR_REGISTRY/${{ github.event.repository.name }}:${{ github.sha }}
-
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
 
       # ---------------------------------------------------
       # 10. Get Current ECS Task Definition
@@ -102,10 +103,9 @@ jobs:
       - name: Download ECS Task Definition
         run: |
           aws ecs describe-task-definition \
-            --task-definition ${{ github.event.repository.name }} \
+            --task-definition ${{ env.ECS_TASK_DEFINITION }} \
             --query taskDefinition \
             > task-definition.json
-
 
       # ---------------------------------------------------
       # 11. Remove unnecessary fields from task definition
@@ -122,7 +122,6 @@ jobs:
             .registeredBy
           )' task-definition.json > task-definition-clean.json
 
-
       # ---------------------------------------------------
       # 12. Update ECS Task Definition with New Image
       # ---------------------------------------------------
@@ -130,10 +129,9 @@ jobs:
         id: task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
-          task-definition: task-definition-clean.json
-          container-name: ${{ github.event.repository.name }}
-          image: $ECR_REGISTRY/${{ github.event.repository.name }}:${{ github.sha }}
-
+          task-definition: apigateway/task-definition-clean.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
 
       # ---------------------------------------------------
       # 13. Deploy New Version to ECS
@@ -142,6 +140,6 @@ jobs:
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
           task-definition: ${{ steps.task-def.outputs.task-definition }}
-          service: ${{ github.event.repository.name }}
+          service: ${{ env.ECS_SERVICE }}
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true
