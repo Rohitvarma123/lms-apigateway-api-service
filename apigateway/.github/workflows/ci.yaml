@@ -11,7 +11,7 @@ permissions:
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
   ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
-  ECS_CLUSTER: lms-cluster
+  ECS_CLUSTER: ecs-lms-today
 
 jobs:
   build-and-deploy:
